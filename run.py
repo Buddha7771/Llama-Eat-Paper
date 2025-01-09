@@ -38,10 +38,13 @@ def main(args):
         properties = result['properties']
         title = properties['title']['title']
         abstract = properties['abstract']['rich_text']
+        url = properties['URL']['url']
         if len(title) == 0 or len(abstract) == 0:
             continue
         embedding = get_embedding(abstract[0]['text']['content'], embed_model)
-        collection.add(ids=title[0]['text']['content'], embeddings=embedding)
+        collection.add(ids=title[0]['text']['content'],
+                       embeddings=embedding,
+                       documents=url)
 
     query_embeddings = []
     query_infos = []
@@ -55,8 +58,11 @@ def main(args):
     logging.info(f'start_date: {start_date}, end_date: {end_date}')
     
     logging.info(f'fetching data from arxiv')
-    for paperinfo in tqdm(arxiv.fetch_paper(start_date, end_date, max_results=None),
-                          desc=f'fetching data from arxiv: {start_date} ~ {end_date}'):
+    # because of arxiv new paper announced daily at 01:00 AM UTC,
+    # we need to fetch data from 1 days ago
+    arxiv_start_date = start_date - timedelta(days=1)
+    for paperinfo in tqdm(arxiv.fetch_paper(arxiv_start_date, end_date, max_results=None),
+                          desc=f'fetching data from arxiv: {arxiv_start_date} ~ {end_date}'):
         embedding = get_embedding(paperinfo.abstract, embed_model)
         query_embeddings.append(embedding)
         query_infos.append(paperinfo)
@@ -116,9 +122,15 @@ def main(args):
             "short": False
         })
         for i, key_idx in enumerate(np.where(distance_matrix[query_idx] < args.threshold)[0]):
+            url = results['documents'][query_idx][key_idx]
+            title = results['ids'][query_idx][key_idx]
+            if url is None:
+                value = title
+            else:
+                value = f"<{url}|{title}>"
             attachment['fields'].append({
                 "title": f"Top {i+1} related paper",
-                "value": results['ids'][query_idx][key_idx],
+                "value": value,
                 "short": False
             })
         attachment_list.append(attachment)
