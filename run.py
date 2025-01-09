@@ -32,7 +32,8 @@ def main(args):
 
     logging.info('creating collection')
     client = chromadb.EphemeralClient()
-    collection = client.create_collection(name='ollama-paper-bot')
+    collection = client.create_collection(name='ollama-paper-bot',
+                                        metadata={"hnsw:space": "cosine"})
     embed_model = args.embedding_model
     for result in data['results']:
         properties = result['properties']
@@ -63,7 +64,8 @@ def main(args):
     arxiv_start_date = start_date - timedelta(days=1)
     for paperinfo in tqdm(arxiv.fetch_paper(arxiv_start_date, end_date, max_results=None),
                           desc=f'fetching data from arxiv: {arxiv_start_date} ~ {end_date}'):
-        embedding = get_embedding(paperinfo.abstract, embed_model)
+        query = f'Represent this abstract for searching relevant abstract:: {paperinfo.abstract}'
+        embedding = get_embedding(query, embed_model)
         query_embeddings.append(embedding)
         query_infos.append(paperinfo)
 
@@ -79,8 +81,8 @@ def main(args):
         return
 
     results = collection.query(query_embeddings, n_results=3)
-    distance_matrix = np.array(results['distances'])
-    query_idxs = np.where((distance_matrix < args.threshold).any(-1))[0]
+    cosine_similarty = 1 - np.array(results['distances'])
+    query_idxs = np.where((cosine_similarty > args.threshold).any(-1))[0]
 
     slack_token = os.getenv('SLACK_TOKEN')
     channel_id = os.getenv('CHANNEL_ID')
@@ -121,7 +123,7 @@ def main(args):
             "value": ', '.join(query_info.authors),
             "short": False
         })
-        for i, key_idx in enumerate(np.where(distance_matrix[query_idx] < args.threshold)[0]):
+        for i, key_idx in enumerate(np.where(cosine_similarty[query_idx] > args.threshold)[0]):
             url = results['documents'][query_idx][key_idx]
             title = results['ids'][query_idx][key_idx]
             if url is None:
@@ -129,7 +131,7 @@ def main(args):
             else:
                 value = f"<{url}|{title}>"
             attachment['fields'].append({
-                "title": f"Top {i+1} related paper",
+                "title": f"Top {i+1} related paper (similarity: {cosine_similarty[query_idx][key_idx]:.2f})",
                 "value": value,
                 "short": False
             })
@@ -149,6 +151,6 @@ if __name__ == '__main__':
     parser.add_argument('--end_date', type=convert_to_datetime, default=None,
                         help='End date for fetching papers. (e.g. 2025-01-01)')
     parser.add_argument('--embedding_model', type=str, default='mxbai-embed-large')
-    parser.add_argument('--threshold', type=float, default=125)
+    parser.add_argument('--threshold', type=float, default=0.8)
     args = parser.parse_args()
     main(args)
