@@ -20,7 +20,7 @@ def get_embedding(text, model: str = 'mxbai-embed-large'):
 def main(args):
     logging.basicConfig(format='%(asctime)s - %(levelname)s | %(message)s',
                         # filemode='w',
-                        filename='run.log',
+                        filename=os.path.dirname(__file__) + '/run.log',
                         level=logging.INFO)
     logging.info('loading environment variables')
     load_dotenv()
@@ -51,23 +51,26 @@ def main(args):
     query_infos = []
     
     start_date = args.start_date
-    if start_date is None:
-        start_date = datetime.now(timezone.utc) - timedelta(days=1)
     end_date = args.end_date
+    if start_date is None:
+        arxiv_start_date = datetime.now(timezone.utc) - timedelta(days=3)
+        start_date = datetime.now(timezone.utc) - timedelta(days=2)
     if end_date is None:
-        end_date = datetime.now(timezone.utc) - timedelta(days=1)
+        arxiv_end_date = datetime.now(timezone.utc) - timedelta(days=3)
+        end_date = datetime.now(timezone.utc) - timedelta(days=2)
     logging.info(f'start_date: {start_date}, end_date: {end_date}')
     
     logging.info(f'fetching data from arxiv')
     # because of arxiv new paper announced daily at 01:00 AM UTC,
     # we need to fetch data from 1 days ago
-    arxiv_start_date = start_date - timedelta(days=1)
-    for paperinfo in tqdm(arxiv.fetch_paper(arxiv_start_date, end_date, max_results=None),
-                          desc=f'fetching data from arxiv: {arxiv_start_date} ~ {end_date}'):
+    for paperinfo in tqdm(arxiv.fetch_paper(arxiv_start_date, arxiv_end_date, max_results=None),
+                          desc=f'fetching data from arxiv: {arxiv_start_date} ~ {arxiv_end_date}'):
         query = f'Represent this abstract for searching relevant abstract:: {paperinfo.abstract}'
         embedding = get_embedding(query, embed_model)
         query_embeddings.append(embedding)
         query_infos.append(paperinfo)
+    N_arxiv = len(query_embeddings)
+    logging.info(f'fetched arxiv papers: {N_arxiv}')
 
     logging.info('fetching data from bioarxiv')
     for paperinfo in tqdm(bioarxiv.fetch_paper(start_date, end_date),
@@ -75,6 +78,8 @@ def main(args):
         embedding = get_embedding(paperinfo.abstract, embed_model)
         query_embeddings.append(embedding)
         query_infos.append(paperinfo)
+    N_bioarxiv = len(query_embeddings) - N_arxiv
+    logging.info(f'fetched bioarxiv papers: {N_bioarxiv}')
 
     if len(query_embeddings) == 0:
         logging.info('No new papers to query.')
@@ -131,7 +136,7 @@ def main(args):
             else:
                 value = f"<{url}|{title}>"
             attachment['fields'].append({
-                "title": f"Top {i+1} related paper (similarity: {cosine_similarty[query_idx][key_idx]:.2f})",
+                "title": f"Top {i+1} related paper (similarity: {cosine_similarty[query_idx][key_idx]:.3f})",
                 "value": value,
                 "short": False
             })
@@ -139,8 +144,11 @@ def main(args):
         logging.info(f'Posting message to slack: {query_info.title}')
 
     text = f"Llama found {len(query_idxs)} papers"
-    client.post_message(channel_id=channel_id, text=text, attachments=attachment_list)
-
+    result = client.post_message(channel_id=channel_id, text=text)
+    for attachment in attachment_list:
+        client.post_thread_message(channel_id=channel_id,
+                                   message_ts=result['ts'],
+                                   attachments=[attachment])
 
 if __name__ == '__main__':
     import argparse
