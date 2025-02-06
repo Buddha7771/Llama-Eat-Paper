@@ -4,12 +4,11 @@ import logging
 import chromadb
 import ollama
 
-from datetime import datetime, timezone, timedelta
 from tqdm import tqdm
 from dotenv import load_dotenv
 
 from api.info import PaperInfo, JournalIconUrl
-from api import arxiv, bioarxiv, slack, notion
+from api import openreview, slack, notion
 
 
 def get_embedding(text, model: str = 'mxbai-embed-large'):
@@ -20,7 +19,7 @@ def get_embedding(text, model: str = 'mxbai-embed-large'):
 def main(args):
     logging.basicConfig(format='%(asctime)s - %(levelname)s | %(message)s',
                         # filemode='w',
-                        filename=os.path.dirname(__file__) + '/run.log',
+                        filename=os.path.dirname(__file__) + '/run_openreview.log',
                         level=logging.INFO)
     logging.info('loading environment variables')
     load_dotenv()
@@ -49,41 +48,18 @@ def main(args):
 
     query_embeddings = []
     query_infos = []
-    
-    start_date = args.start_date
-    end_date = args.end_date
-    if start_date is None:
-        arxiv_start_date = datetime.now(timezone.utc) - timedelta(days=3)
-        start_date = datetime.now(timezone.utc) - timedelta(days=2)
-    else:
-        arxiv_start_date = start_date
-    if end_date is None:
-        arxiv_end_date = datetime.now(timezone.utc) - timedelta(days=3)
-        end_date = datetime.now(timezone.utc) - timedelta(days=2)
-    else:
-        arxiv_end_date = end_date
-    logging.info(f'start_date: {start_date}, end_date: {end_date}')
-    
-    logging.info(f'fetching data from arxiv')
-    # because of arxiv new paper announced daily at 01:00 AM UTC,
-    # we need to fetch data from 1 days ago
-    for paperinfo in tqdm(arxiv.fetch_paper(arxiv_start_date, arxiv_end_date, max_results=None),
-                          desc=f'fetching data from arxiv: {arxiv_start_date} ~ {arxiv_end_date}'):
-        query = f'Represent this abstract for searching relevant abstract:: {paperinfo.abstract}'
-        embedding = get_embedding(query, embed_model)
-        query_embeddings.append(embedding)
-        query_infos.append(paperinfo)
-    N_arxiv = len(query_embeddings)
-    logging.info(f'fetched arxiv papers: {N_arxiv}')
 
-    logging.info('fetching data from bioarxiv')
-    for paperinfo in tqdm(bioarxiv.fetch_paper(start_date, end_date),
-                          desc=f'fetching data from bioarxiv: {start_date} ~ {end_date}'):
-        embedding = get_embedding(paperinfo.abstract, embed_model)
-        query_embeddings.append(embedding)
-        query_infos.append(paperinfo)
-    N_bioarxiv = len(query_embeddings) - N_arxiv
-    logging.info(f'fetched bioarxiv papers: {N_bioarxiv}')
+    conference = args.conference
+    year = args.year
+    logging.info(f'fetching data from {conference}/{year}')
+    for venue in tqdm(openreview.fetch_venues(conference, year),
+                      desc=f'fetching venues from {conference}/{year}'):
+        invitation = f'{venue}/-/Submission'
+        for paperinfo in openreview.fetch_invitation_paper(invitation, True):
+            embedding = get_embedding(paperinfo.abstract, embed_model)
+            query_embeddings.append(embedding)
+            query_infos.append(paperinfo)
+    logging.info(f'fetched {conference}/{year} papers: {len(query_infos)}')
 
     if len(query_embeddings) == 0:
         logging.info('No new papers to query.')
@@ -104,10 +80,12 @@ def main(args):
     attachment_list = []
     for query_idx in query_idxs:
         query_info: PaperInfo = query_infos[query_idx]
-        if query_info.journal == 'arXiv':
-            icon_url = JournalIconUrl.arXiv.value
-        elif query_info.journal == 'bioRxiv':
-            icon_url = JournalIconUrl.bioRxiv.value
+        if conference.startswith('ICLR'):
+            icon_url = JournalIconUrl.ICLR.value
+        elif conference.startswith('ICML'):
+            icon_url = JournalIconUrl.ICML.value
+        elif conference.startswith('NeurIPS'):
+            icon_url = JournalIconUrl.NeurIPS.value
         else:
             icon_url = None
 
@@ -147,22 +125,20 @@ def main(args):
         attachment_list.append(attachment)
         logging.info(f'Posting message to slack: {query_info.title}')
 
-    text = f"Llama found {len(query_idxs)} papers"
+    text = f"Llama found {len(query_idxs)} papers from {conference}/{year}"
     result = client.post_message(channel_id=channel_id, text=text)
     for attachment in attachment_list:
         client.post_thread_message(channel_id=channel_id,
                                    message_ts=result['ts'],
                                    attachments=[attachment])
 
+
 if __name__ == '__main__':
     import argparse
-    convert_to_datetime = lambda date: datetime.strptime(date, '%Y-%m-%d')
     parser = argparse.ArgumentParser(description='oLlama paper bot arguments.')
-    parser.add_argument('--start_date', type=convert_to_datetime, default=None,
-                        help='Start date for fetching papers. (e.g. 2025-01-01)')
-    parser.add_argument('--end_date', type=convert_to_datetime, default=None,
-                        help='End date for fetching papers. (e.g. 2025-01-01)')
     parser.add_argument('--embedding_model', type=str, default='mxbai-embed-large')
+    parser.add_argument('--conference', type=str, default='ICLR.cc')
+    parser.add_argument('--year', type=str, default='2025')
     parser.add_argument('--threshold', type=float, default=0.8)
     args = parser.parse_args()
     main(args)
