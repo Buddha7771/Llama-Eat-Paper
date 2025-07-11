@@ -45,7 +45,7 @@ def fetch_invitation_paper(
                 title=content['title']['value'],
                 authors=content['authors']['value'] if 'authors' in content else [],
                 subjects=content['keywords']['value'] if 'keywords' in content else [],
-                abstract=content['abstract']['value'].replace('\n', ' '),
+                abstract=content['abstract']['value'].replace('\n', ' ') if 'abstract' in content else '',
                 submit=datetime.fromtimestamp(paper.tcdate / 1000),
                 pdf_url="https://openreview.net" + content["pdf"]['value'] if "pdf" in content else None,
                 abs_url=f"https://openreview.net/forum?id={paper.id}",
