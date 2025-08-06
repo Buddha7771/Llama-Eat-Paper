@@ -1,7 +1,7 @@
 from pydantic import BaseModel
 from slack_sdk import WebClient
 
-from llama_eat_paper.schemas import Paper, JournalIconUrl
+from llama_eat_paper.models import Paper, JournalIconUrl
 from llama_eat_paper.config import settings
 
 

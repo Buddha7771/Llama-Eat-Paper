@@ -4,7 +4,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Generator
 
-from llama_eat_paper.schemas import Paper
+from llama_eat_paper.models import Paper
 
 logger = logging.getLogger(__name__)
 

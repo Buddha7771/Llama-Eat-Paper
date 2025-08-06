@@ -3,7 +3,7 @@ from typing import Generator
 
 from openreview.api import OpenReviewClient as Client
 
-from llama_eat_paper.schemas import Paper
+from llama_eat_paper.models import Paper
 
 
 class OpenReviewClient:

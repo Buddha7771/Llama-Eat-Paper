@@ -4,7 +4,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Generator
 
-from llama_eat_paper.schemas import Paper
+from llama_eat_paper.models import Paper
 
 
 logger = logging.getLogger(__name__)
@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 class BioRxivClient:
     api_url = "https://api.biorxiv.org/details/biorxiv"
-    content_url = "https://www.biorxiv.org/content/"
+    content_url = "https://www.biorxiv.org/content"
 
     def __init__(self):
         pass
